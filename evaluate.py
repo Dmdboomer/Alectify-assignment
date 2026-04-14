@@ -127,6 +127,144 @@ def plot_forecasts_vs_actual(cv_df, target_name):
     print(f"  Saved plot: {path}")
 
 
+def plot_forecasts_circular(cv_df, target_name="sleep_start_hour"):
+    """
+    Plot sleep start hour in circular (sin/cos) space.
+
+    Hours are mapped to the unit circle via sin(2π·h/24), cos(2π·h/24).
+    This removes the 00↔24 wraparound that makes line plots of raw hours
+    look like huge spikes when a driver's sleep time crosses midnight.
+    """
+    os.makedirs(PLOT_DIR, exist_ok=True)
+
+    drivers = sorted(cv_df["unique_id"].unique())[:4]
+    fig, axes = plt.subplots(4, 2, figsize=(14, 14), sharex=True)
+    fig.suptitle(
+        f"Forecast vs Actual (circular encoding): {target_name}",
+        fontsize=14,
+    )
+
+    plot_models = [
+        ("LightGBM", "-", 1.4),
+        ("TimesFM", "-", 1.0),
+        ("AutoARIMA", "--", 0.8),
+    ]
+
+    def to_sin_cos(hours):
+        rad = 2 * np.pi * hours / 24.0
+        return np.sin(rad), np.cos(rad)
+
+    for row, driver in enumerate(drivers):
+        drv = cv_df[cv_df["unique_id"] == driver].sort_values("ds")
+        y_sin, y_cos = to_sin_cos(drv["y"].values)
+
+        ax_sin, ax_cos = axes[row, 0], axes[row, 1]
+        ax_sin.plot(drv["ds"], y_sin, "k-", linewidth=0.8, label="Actual", alpha=0.8)
+        ax_cos.plot(drv["ds"], y_cos, "k-", linewidth=0.8, label="Actual", alpha=0.8)
+
+        for model, style, lw in plot_models:
+            if model not in drv.columns:
+                continue
+            p_sin, p_cos = to_sin_cos(drv[model].values)
+            color = MODEL_COLORS.get(model)
+            ax_sin.plot(drv["ds"], p_sin, style, linewidth=lw, label=model,
+                        color=color, alpha=0.7)
+            ax_cos.plot(drv["ds"], p_cos, style, linewidth=lw, label=model,
+                        color=color, alpha=0.7)
+
+        ax_sin.set_title(f"{driver} — sin component", fontsize=10)
+        ax_cos.set_title(f"{driver} — cos component", fontsize=10)
+        ax_sin.set_ylabel("sin(2π·h/24)")
+        ax_cos.set_ylabel("cos(2π·h/24)")
+        ax_sin.set_ylim(-1.1, 1.1)
+        ax_cos.set_ylim(-1.1, 1.1)
+        ax_sin.axhline(0, color="grey", linewidth=0.4, alpha=0.4)
+        ax_cos.axhline(0, color="grey", linewidth=0.4, alpha=0.4)
+        if row == 0:
+            ax_sin.legend(fontsize=7)
+            ax_cos.legend(fontsize=7)
+        if row == len(drivers) - 1:
+            ax_sin.tick_params(axis="x", rotation=30, labelsize=7)
+            ax_cos.tick_params(axis="x", rotation=30, labelsize=7)
+
+    plt.tight_layout()
+    path = os.path.join(PLOT_DIR, f"cv_{target_name}_circular.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  Saved plot: {path}")
+
+
+def plot_residuals(cv_df, target_name, circular=False):
+    """
+    Plot signed residuals (actual - predicted) for each driver.
+
+    If circular=True, residuals are wrapped into [-12, 12] hours so
+    the 00↔24 boundary doesn't create fake 23h errors.
+    A flat line at 0 = perfect forecast.
+    """
+    os.makedirs(PLOT_DIR, exist_ok=True)
+
+    drivers = sorted(cv_df["unique_id"].unique())[:4]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharey=True)
+    kind = "circular" if circular else "linear"
+    fig.suptitle(
+        f"Forecast Residuals (actual − predicted, {kind}): {target_name}",
+        fontsize=14,
+    )
+
+    plot_models = [
+        ("LightGBM", "-", 1.2),
+        ("TimesFM", "-", 1.0),
+        ("AutoARIMA", "--", 0.9),
+    ]
+
+    all_resids = []
+    for driver in drivers:
+        drv = cv_df[cv_df["unique_id"] == driver].sort_values("ds")
+        for model, _, _ in plot_models:
+            if model not in drv.columns:
+                continue
+            diff = drv["y"].values - drv[model].values
+            if circular:
+                diff = ((diff + 12) % 24) - 12
+            all_resids.append(diff[~np.isnan(diff)])
+    if all_resids:
+        flat = np.concatenate(all_resids)
+        pad = max(1.0, np.nanpercentile(np.abs(flat), 99) * 1.1)
+        ylim = (-pad, pad) if not circular else (-12, 12)
+    else:
+        ylim = (-12, 12) if circular else (-5, 5)
+
+    for ax, driver in zip(axes.flat, drivers):
+        drv = cv_df[cv_df["unique_id"] == driver].sort_values("ds")
+        ax.axhline(0, color="black", linewidth=0.6, alpha=0.7)
+
+        for model, style, lw in plot_models:
+            if model not in drv.columns:
+                continue
+            diff = drv["y"].values - drv[model].values
+            if circular:
+                diff = ((diff + 12) % 24) - 12
+            ax.plot(
+                drv["ds"], diff, style,
+                linewidth=lw, label=model,
+                color=MODEL_COLORS.get(model), alpha=0.8,
+            )
+
+        ax.set_title(driver, fontsize=10)
+        ax.set_ylabel("Residual (hours)")
+        ax.set_ylim(*ylim)
+        ax.axhspan(-1, 1, color="green", alpha=0.08)
+        ax.legend(fontsize=7, loc="upper right")
+        ax.tick_params(axis="x", rotation=30, labelsize=7)
+
+    plt.tight_layout()
+    path = os.path.join(PLOT_DIR, f"cv_{target_name}_residuals.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  Saved plot: {path}")
+
+
 def plot_model_comparison(metrics_start, metrics_dur):
     """Bar chart comparing model MAE for both targets."""
     os.makedirs(PLOT_DIR, exist_ok=True)
@@ -236,7 +374,10 @@ def main():
     # --- Plots ---
     print("\nGenerating plots...")
     plot_forecasts_vs_actual(cv_start, "sleep_start_hour")
+    plot_forecasts_circular(cv_start, "sleep_start_hour")
+    plot_residuals(cv_start, "sleep_start_hour", circular=True)
     plot_forecasts_vs_actual(cv_dur, "duration_hours")
+    plot_residuals(cv_dur, "duration_hours", circular=False)
     plot_model_comparison(metrics_start, metrics_dur)
     plot_per_driver_heatmap(per_driver_start, "sleep_start_hour")
     plot_per_driver_heatmap(per_driver_dur, "duration_hours")
