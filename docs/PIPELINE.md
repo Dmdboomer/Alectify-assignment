@@ -11,10 +11,16 @@ generate_data.py --> data/*.csv --> forecast.py --> data/cv_*.csv --> evaluate.p
 ```
 generate_data.py
       |
-      +--> data/driver_gps_events.csv    (51k GPS pings, 10 drivers, 365 days)
-      +--> data/sleep_events.csv         (3,650 sleep sessions)
-      +--> data/driver_profiles.csv      (10 driver profiles)
+      +--> data/driver_gps_events.csv    (~66k GPS pings, 12 drivers, 365 days)
+      +--> data/sleep_events.csv         (~4,200 sleep sessions)
+      +--> data/driver_profiles.csv      (12 driver profiles, day/night/split shifts)
 ```
+
+The generator layers driver-specific shift archetypes (day / night / split)
+with weekly + seasonal cycles, habit drift, fatigue + sleep-debt dynamics,
+long-haul trips, a per-driver vacation window, and ~2% disruption days —
+giving duration std ~1.3h and sleep-start coverage across all 24h (true
+midnight wraparound for split-shift drivers).
 
 ## Step 2: Forecasting (`forecast.py`)
 

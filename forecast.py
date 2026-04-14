@@ -253,7 +253,7 @@ def mlforecast_cv(ts_df, horizon, n_windows=4, step_size=7):
 def load_timesfm():
     """Load and compile the TimesFM model."""
     print("  Loading TimesFM 200M (PyTorch)...")
-    model = TimesFM_2p5_200M_torch(torch_compile=False)
+    model = TimesFM_2p5_200M_torch.from_pretrained("google/timesfm-2.5-200m-pytorch")
     config = ForecastConfig(
         max_context=512,
         max_horizon=128,
